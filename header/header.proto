@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package header;
+option go_package = "../header";
+
+enum Const {
+	ZERO = 0;
+	MAX_HEADER_LEN = 1024;
+}
+
+message RequestHeader {
+	bool   is_compressed = 1;
+	string method = 2;
+	uint64 id = 3;
+	uint32 request_len = 4;
+	uint32 checksum = 5;
+	uint64 ttl = 6;
+}
+
+message ResponseHeader {
+	bool   is_compressed = 1;
+	uint64 id = 2;
+	string error = 3;
+	uint32 response_len = 4;
+	uint32 checksum = 5;
+}
