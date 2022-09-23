@@ -40,16 +40,16 @@ type Server struct {
 type ServerCodec interface {
 	ReadRequestHeader(*Request) error
 	ReadRequestBody(interface{}) error
-	WirteResponse(*Response, interface{}) error
+	WriteResponse(*Response, interface{}) error
 	Close() error
 }
 
-// NewServer return a new Server.
+// NewServer returns a new Server.
 func NewServer() *Server {
 	return &Server{}
 }
 
-// Is the type exported or a builtin?
+// Is this type exported or a builtin?
 func isExportedOrBuiltinType(t reflect.Type) bool {
 	for t.Kind() == reflect.Ptr {
 		t = t.Elem()
@@ -82,10 +82,10 @@ func (server *Server) register(rcvr interface{}, name string, useName bool) erro
 	s.name = sname
 	s.method = suitableMethods(s.typ)
 	if len(s.method) == 0 {
-		return errors.New("tindrpc.Register: type " + sname + " has no exported methods of suitable type")
+		return errors.New("tinyrpc.Register: type " + sname + " has no exported methods of suitable type")
 	}
 	if _, dup := server.serviceMap.LoadOrStore(sname, s); dup {
-		return errors.New("tindyrpc: service already registered: " + sname)
+		return errors.New("tinyrpc: service already registered: " + sname)
 	}
 	return nil
 }
@@ -110,10 +110,10 @@ func suitableMethods(typ reflect.Type) map[string]*methodType {
 			continue
 		}
 		replyType := mtype.In(2)
-		if !isExportedOrBuiltinType(replyType) {
+		if replyType.Kind() != reflect.Ptr {
 			continue
 		}
-		if replyType.Kind() != reflect.Ptr {
+		if !isExportedOrBuiltinType(replyType) {
 			continue
 		}
 		if mtype.NumOut() != 1 {
@@ -140,15 +140,16 @@ func (server *Server) sendResponse(
 	}
 	resp.Seq = req.Seq
 	sending.Lock()
-	err := codec.WirteResponse(resp, reply)
+	err := codec.WriteResponse(resp, reply)
 	if err != nil {
-		log.Println("tindyrpc: writing response error: ", err)
+		log.Println("tinyrpc: writing response error:", err)
 	}
 	sending.Unlock()
 	server.freeResponse(resp)
 }
 
-func (s *service) call(server *Server, sending *sync.Mutex, wg *sync.WaitGroup, mtype *methodType, req *Request, argv, replyv reflect.Value, codec ServerCodec) {
+func (s *service) call(server *Server, sending *sync.Mutex, wg *sync.WaitGroup,
+	mtype *methodType, req *Request, argv, replyv reflect.Value, codec ServerCodec) {
 	if wg != nil {
 		defer wg.Done()
 	}
@@ -171,7 +172,7 @@ func (s *service) call(server *Server, sending *sync.Mutex, wg *sync.WaitGroup, 
 	if timeout {
 		errMsg = TimeOutError.Error()
 	}
-	if !timeout && errInter == nil {
+	if !timeout && errInter != nil {
 		errMsg = errInter.(error).Error()
 	}
 	server.sendResponse(sending, req, replyv.Interface(), codec, errMsg)
@@ -209,7 +210,7 @@ func (server *Server) ServeCodec(codec ServerCodec) {
 
 // ServeRequest is like ServeCodec but synchronously serves a single request.
 // It does not close the codec upon completion.
-func (server *Server) ServerRequest(codec ServerCodec) error {
+func (server *Server) ServeRequest(codec ServerCodec) error {
 	sending := new(sync.Mutex)
 	service, mtype, req, argv, replyv, keepReading, err := server.readRequest(codec)
 	if err != nil {
@@ -227,7 +228,8 @@ func (server *Server) ServerRequest(codec ServerCodec) error {
 	return nil
 }
 
-func (server *Server) readRequest(codec ServerCodec) (service *service, mtype *methodType, req *Request, argv, replyv reflect.Value, keepReading bool, err error) {
+func (server *Server) readRequest(codec ServerCodec) (
+	service *service, mtype *methodType, req *Request, argv, replyv reflect.Value, keepReading bool, err error) {
 	service, mtype, req, keepReading, err = server.readRequestHeader(codec)
 	if err != nil {
 		if !keepReading {
@@ -237,7 +239,7 @@ func (server *Server) readRequest(codec ServerCodec) (service *service, mtype *m
 		return
 	}
 	argv = reflect.New(mtype.ArgType.Elem())
-	// argv guaranteed to be a point now.
+	// argv guaranteed to be a pointer now.
 	if err = codec.ReadRequestBody(argv.Interface()); err != nil {
 		return
 	}
@@ -245,7 +247,8 @@ func (server *Server) readRequest(codec ServerCodec) (service *service, mtype *m
 	return
 }
 
-func (server *Server) readRequestHeader(codec ServerCodec) (svc *service, mtype *methodType, req *Request, keepReading bool, err error) {
+func (server *Server) readRequestHeader(codec ServerCodec) (
+	svc *service, mtype *methodType, req *Request, keepReading bool, err error) {
 	req = server.getRequest()
 	err = codec.ReadRequestHeader(req)
 	if err != nil {

@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package message;
+option go_package = "../message";
+
+message EchoRequest {
+	string msg = 1;
+}
+
+message EchoResponse {
+	string msg = 1;
+}
